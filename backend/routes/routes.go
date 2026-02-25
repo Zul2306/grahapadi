@@ -77,6 +77,15 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 		protected := api.Group("/")
 		protected.Use(middleware.AuthRequired())
 		{
+			// Gudang / Warehouse management
+			gudangs := protected.Group("/gudangs")
+			{
+				gudangs.GET("", func(c *gin.Context) {
+					c.Set("config", cfg)
+					controllers.GetGudangs(c)
+				})
+			}
+
 			// User management
 			users := protected.Group("/users")
 			{
@@ -89,19 +98,71 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 			// Product / Item management
 			products := protected.Group("/products")
 			{
-				products.GET("", controllers.GetProducts)
-				products.GET("/:id", controllers.GetProduct)
-				products.POST("", controllers.CreateProduct)
-				products.PUT("/:id", controllers.UpdateProduct)
-				products.DELETE("/:id", controllers.DeleteProduct)
+				products.GET("", func(c *gin.Context) {
+					c.Set("config", cfg)
+					controllers.GetProducts(c)
+				})
+				products.GET("/:id", func(c *gin.Context) {
+					c.Set("config", cfg)
+					controllers.GetProduct(c)
+				})
+				products.GET("/stock/:produk_id", func(c *gin.Context) {
+					c.Set("config", cfg)
+					controllers.GetProductTotalStock(c)
+				})
+				products.POST("", func(c *gin.Context) {
+					c.Set("config", cfg)
+					controllers.CreateProduct(c)
+				})
+				products.PUT("/:id", func(c *gin.Context) {
+					c.Set("config", cfg)
+					controllers.UpdateProduct(c)
+				})
+				products.DELETE("/:id", func(c *gin.Context) {
+					c.Set("config", cfg)
+					controllers.DeleteProduct(c)
+				})
 			}
 
 			// Stock / Opname
 			stock := protected.Group("/stock")
 			{
-				stock.GET("", controllers.GetStockCards)
-				stock.GET("/:id", controllers.GetStockCard)
-				stock.POST("/opname", controllers.CreateOpname)
+				stock.GET("", func(c *gin.Context) {
+					c.Set("config", cfg)
+					controllers.GetStockCards(c)
+				})
+				stock.GET("/:id", func(c *gin.Context) {
+					c.Set("config", cfg)
+					controllers.GetStockCard(c)
+				})
+				
+				// Stock Opname endpoints
+				stock.POST("/opname", func(c *gin.Context) {
+					c.Set("config", cfg)
+					controllers.CreateStockOpname(c)
+				})
+				stock.GET("/opname", func(c *gin.Context) {
+					c.Set("config", cfg)
+					controllers.GetStockOpnames(c)
+				})
+				stock.GET("/opname/:id", func(c *gin.Context) {
+					c.Set("config", cfg)
+					controllers.GetStockOpnameByID(c)
+				})
+				
+				// Transaction endpoints
+				stock.POST("/transactions", func(c *gin.Context) {
+					c.Set("config", cfg)
+					controllers.CreateTransaction(c)
+				})
+				stock.GET("/transactions", func(c *gin.Context) {
+					c.Set("config", cfg)
+					controllers.GetTransactions(c)
+				})
+				stock.GET("/transactions/:id", func(c *gin.Context) {
+					c.Set("config", cfg)
+					controllers.GetTransaction(c)
+				})
 			}
 		}
 	}

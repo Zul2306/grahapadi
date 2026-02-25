@@ -61,8 +61,27 @@ func (c *Config) MigrateDB() error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	if err := c.DB.AutoMigrate(&models.User{}, &models.PasswordReset{}, &models.Product{}, &models.StockCard{}, &models.Opname{}); err != nil {
+	log.Printf("🔄 Checking and updating database schema...")
+
+	// Run AutoMigrate to create/update tables with correct schema (preserves existing data)
+	log.Printf("  - Creating tables with new schema...")
+	if err := c.DB.AutoMigrate(
+		&models.User{},
+		&models.PasswordReset{},
+		&models.Product{},
+		&models.Gudang{},
+		&models.Transaction{},
+		&models.StockGudang{},
+		&models.StockCard{},
+		&models.StockOpname{},
+	); err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
+	}
+
+	// Ensure produk table exists
+	if !c.DB.Migrator().HasTable(&models.Produk{}) {
+		log.Printf("  - Creating produk table...")
+		c.DB.Migrator().CreateTable(&models.Produk{})
 	}
 
 	log.Printf("✓ Database migrations completed successfully")

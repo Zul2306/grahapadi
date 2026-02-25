@@ -1,33 +1,48 @@
 package controllers
 
 import (
+	"errors"
+	"inventory-backend/config"
 	"inventory-backend/models"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
-// In-memory products store (replace with database)
-var products = []models.Product{
-	{
-		ID: 1, Code: "PRD-001", Name: "Laptop Dell Inspiron",
-		Category: "Electronics", Unit: "pcs", Stock: 10, MinStock: 3,
-		Description: "Laptop for office use", CreatedAt: time.Now(), UpdatedAt: time.Now(),
-	},
-	{
-		ID: 2, Code: "PRD-002", Name: "Office Chair",
-		Category: "Furniture", Unit: "pcs", Stock: 25, MinStock: 5,
-		Description: "Ergonomic office chair", CreatedAt: time.Now(), UpdatedAt: time.Now(),
-	},
+func getDB(c *gin.Context) (*gorm.DB, bool) {
+	cfgValue, ok := c.Get("config")
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Config not found in context"})
+		return nil, false
+	}
+
+	cfg, ok := cfgValue.(*config.Config)
+	if !ok || cfg.DB == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database not initialized"})
+		return nil, false
+	}
+
+	return cfg.DB, true
 }
 
 // GetProducts returns all products
 func GetProducts(c *gin.Context) {
+	db, ok := getDB(c)
+	if !ok {
+		return
+	}
+
+	var items []models.Produk
+	if err := db.Order("id ASC").Find(&items).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch products"})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"data":  products,
-		"total": len(products),
+		"data":  items,
+		"total": len(items),
 	})
 }
 
@@ -39,24 +54,32 @@ func GetProduct(c *gin.Context) {
 		return
 	}
 
-	for _, p := range products {
-		if p.ID == uint(id) {
-			c.JSON(http.StatusOK, gin.H{"data": p})
+	db, ok := getDB(c)
+	if !ok {
+		return
+	}
+
+	var item models.Produk
+	if err := db.First(&item, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 			return
 		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
+		return
 	}
-	c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+
+	c.JSON(http.StatusOK, gin.H{"data": item})
 }
 
 // CreateProductRequest holds data for creating a product
 type CreateProductRequest struct {
-	Code        string `json:"code" binding:"required"`
-	Name        string `json:"name" binding:"required"`
-	Category    string `json:"category" binding:"required"`
-	Unit        string `json:"unit" binding:"required"`
-	Stock       int    `json:"stock"`
-	MinStock    int    `json:"min_stock"`
-	Description string `json:"description"`
+	KodeBarang  string  `json:"kode_barang" binding:"required"`
+	NamaBarang  string  `json:"nama_barang" binding:"required"`
+	JenisBarang string  `json:"jenis_barang" binding:"required"`
+	Satuan      string  `json:"satuan" binding:"required"`
+	StokMinimal int     `json:"stok_minimal"`
+	BeratKg     float64 `json:"berat_kg"`
 }
 
 // CreateProduct creates a new product
@@ -67,19 +90,23 @@ func CreateProduct(c *gin.Context) {
 		return
 	}
 
-	newProduct := models.Product{
-		ID:          uint(len(products) + 1),
-		Code:        req.Code,
-		Name:        req.Name,
-		Category:    req.Category,
-		Unit:        req.Unit,
-		Stock:       req.Stock,
-		MinStock:    req.MinStock,
-		Description: req.Description,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+	db, ok := getDB(c)
+	if !ok {
+		return
 	}
-	products = append(products, newProduct)
+
+	newProduct := models.Produk{
+		KodeBarang:  req.KodeBarang,
+		NamaBarang:  req.NamaBarang,
+		JenisBarang: req.JenisBarang,
+		Satuan:      req.Satuan,
+		StokMinimal: req.StokMinimal,
+		BeratKg:     req.BeratKg,
+	}
+	if err := db.Create(&newProduct).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create product"})
+		return
+	}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "Product created successfully",
@@ -89,11 +116,12 @@ func CreateProduct(c *gin.Context) {
 
 // UpdateProductRequest holds data for updating a product
 type UpdateProductRequest struct {
-	Name        string `json:"name"`
-	Category    string `json:"category"`
-	Unit        string `json:"unit"`
-	MinStock    int    `json:"min_stock"`
-	Description string `json:"description"`
+	KodeBarang  string  `json:"kode_barang"`
+	NamaBarang  string  `json:"nama_barang"`
+	JenisBarang string  `json:"jenis_barang"`
+	Satuan      string  `json:"satuan"`
+	StokMinimal *int    `json:"stok_minimal"`
+	BeratKg     *float64 `json:"berat_kg"`
 }
 
 // UpdateProduct updates an existing product
@@ -110,33 +138,49 @@ func UpdateProduct(c *gin.Context) {
 		return
 	}
 
-	for i, p := range products {
-		if p.ID == uint(id) {
-			if req.Name != "" {
-				products[i].Name = req.Name
-			}
-			if req.Category != "" {
-				products[i].Category = req.Category
-			}
-			if req.Unit != "" {
-				products[i].Unit = req.Unit
-			}
-			if req.MinStock > 0 {
-				products[i].MinStock = req.MinStock
-			}
-			if req.Description != "" {
-				products[i].Description = req.Description
-			}
-			products[i].UpdatedAt = time.Now()
+	db, ok := getDB(c)
+	if !ok {
+		return
+	}
 
-			c.JSON(http.StatusOK, gin.H{
-				"message": "Product updated successfully",
-				"data":    products[i],
-			})
+	var item models.Produk
+	if err := db.First(&item, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 			return
 		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
+		return
 	}
-	c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+
+	if req.KodeBarang != "" {
+		item.KodeBarang = req.KodeBarang
+	}
+	if req.NamaBarang != "" {
+		item.NamaBarang = req.NamaBarang
+	}
+	if req.JenisBarang != "" {
+		item.JenisBarang = req.JenisBarang
+	}
+	if req.Satuan != "" {
+		item.Satuan = req.Satuan
+	}
+	if req.StokMinimal != nil {
+		item.StokMinimal = *req.StokMinimal
+	}
+	if req.BeratKg != nil {
+		item.BeratKg = *req.BeratKg
+	}
+
+	if err := db.Save(&item).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update product"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Product updated successfully",
+		"data":    item,
+	})
 }
 
 // DeleteProduct removes a product by ID
@@ -147,12 +191,20 @@ func DeleteProduct(c *gin.Context) {
 		return
 	}
 
-	for i, p := range products {
-		if p.ID == uint(id) {
-			products = append(products[:i], products[i+1:]...)
-			c.JSON(http.StatusOK, gin.H{"message": "Product deleted successfully"})
-			return
-		}
+	db, ok := getDB(c)
+	if !ok {
+		return
 	}
-	c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+
+	result := db.Delete(&models.Produk{}, id)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete product"})
+		return
+	}
+	if result.RowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Product deleted successfully"})
 }
